@@ -33,6 +33,11 @@
       color: red;
       font-weight: bold;
     }
+	#warningBox2 {
+      margin-top: 10px;
+      color: red;
+      font-weight: bold;
+    }
     #modalSpinner {
       display: none;
       position: fixed;
@@ -114,7 +119,7 @@
       </div>
       
       <div id="result"></div>
-
+	  <div id="warningBox2"></div>
       <div class="col-12 text-center mt-3">
         <button type="submit" class="btn btn-primary">
           <i class="fa-solid fa-paper-plane"></i> Submit
@@ -139,6 +144,7 @@
     const spinner = document.getElementById("modalSpinner");
     const resultBox = document.getElementById("result");
     const warningBox = document.getElementById("warningBox");
+	const warningBox2 = document.getElementById("warningBox2");
     const mainForm = document.getElementById("mainForm");
     const statusSelect = document.getElementById("statusSelect");
     const nipField = document.getElementById("nipField");
@@ -190,6 +196,7 @@
         const data = await res.json();
         if (data.used) {
           warningBox.textContent = "⚠️ Device ini sudah melakukan input hari ini.";
+		  warningBox2.textContent = "⚠️ Device ini sudah melakukan input hari ini.";
           document.querySelectorAll("#mainForm input,#mainForm select,#mainForm button").forEach(el => el.disabled = true);
         }
         return data.used;
