@@ -6,62 +6,19 @@
   <title>Form Pendaftaran Peserta</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-
-  <!-- Select2 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
-
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-      background: #f7f7f7;
-    }
-    .card {
-      max-width: 600px;
-      margin: auto;
-      padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    }
-    #deviceBox {
-      margin-top: 10px;
-      font-size: 0.85rem;
-      color: #555;
-    }
-    #warningBox {
-      margin-top: 10px;
-      color: red;
-      font-weight: bold;
-    }
-	#warningBox2 {
-      margin-top: 10px;
-      color: red;
-      font-weight: bold;
-    }
-    #modalSpinner {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0,0,0,0.4);
-      z-index: 1000;
-      justify-content: center;
-      align-items: center;
-      flex-direction: column;
-    }
-    #modalSpinner.show {
-      display: flex;
-    }
-    #modalSpinner .spinner-border {
-      color: #fff;
-      width: 3rem;
-      height: 3rem;
-    }
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f7f7f7; }
+    .card { max-width: 600px; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    #deviceBox { margin-top: 10px; font-size: 0.85rem; color: #555; }
+    #warningBox, #warningBox2 { margin-top: 10px; color: red; font-weight: bold; }
+    #modalSpinner { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
+    #modalSpinner.show { display: flex; }
+    #modalSpinner .spinner-border { color: #fff; width: 3rem; height: 3rem; }
   </style>
 </head>
 <body>
+  <!-- (form HTML kamu tetap sama — saya potong agar fokus ke JS) -->
   <div class="card">
     <h3 class="mb-4 text-center">Form Pendaftaran Peserta</h3>
 
@@ -134,9 +91,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-  <!-- jQuery wajib untuk Select2 -->
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-  <!-- Select2 JS -->
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
   <script>
@@ -144,22 +99,22 @@
     const spinner = document.getElementById("modalSpinner");
     const resultBox = document.getElementById("result");
     const warningBox = document.getElementById("warningBox");
-	const warningBox2 = document.getElementById("warningBox2");
+    const warningBox2 = document.getElementById("warningBox2");
     const mainForm = document.getElementById("mainForm");
     const statusSelect = document.getElementById("statusSelect");
-    const nipField = document.getElementById("nipField");
+    const nipField = document.getElementById("nip"); // <-- PERBAIKAN: gunakan "nip" sesuai HTML
+    // cache fingerprint supaya tidak minta IP berkali-kali
+    let cachedFP = null;
 
-    function showSpinner(){ spinner.style.display = "flex"; }
-    function hideSpinner(){ spinner.style.display = "none"; }
+    function showSpinner(){ spinner.classList.add("show"); }
+    function hideSpinner(){ spinner.classList.remove("show"); }
 
-    // SHA-256 helper
     async function sha256(msg) {
       const buf = new TextEncoder().encode(msg);
       const hash = await crypto.subtle.digest("SHA-256", buf);
       return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,"0")).join("");
     }
 
-    // fetch with timeout
     async function fetchWithTimeout(url, options = {}, timeout = 20000) {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeout);
@@ -173,8 +128,9 @@
       }
     }
 
-    // Get fingerprint
     async function getFingerprint() {
+      // if cached, return it
+      if (cachedFP) return cachedFP;
       const ua = navigator.userAgent;
       const screenRes = `${screen.width}x${screen.height}`;
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -185,28 +141,29 @@
       } catch(e){ console.warn("Gagal ambil IP:", e); }
       const raw = `${ua}|${screenRes}|${tz}|${lang}|${ip}`;
       const deviceID = await sha256(raw);
+      cachedFP = { deviceID, ip };
       document.getElementById("deviceBox").textContent = `Device ID: ${deviceID} | IP: ${ip}`;
-      return { deviceID, ip };
+      return cachedFP;
     }
 
-    // Check device
     async function checkDeviceToday(deviceID) {
       try {
-        const res = await fetchWithTimeout(`${apiUrl}?action=checkDevice&deviceID=${encodeURIComponent(deviceID)}`);
+        const res = await fetchWithTimeout(`${apiUrl}?action=checkDevice&deviceID=${encodeURIComponent(deviceID)}`, {}, 8000); // timeout pendek untuk cek
         const data = await res.json();
         if (data.used) {
           warningBox.textContent = "⚠️ Device ini sudah melakukan input hari ini.";
-		  warningBox2.textContent = "⚠️ Device ini sudah melakukan input hari ini.";
+          warningBox2.textContent = warningBox.textContent;
           document.querySelectorAll("#mainForm input,#mainForm select,#mainForm button").forEach(el => el.disabled = true);
         }
         return data.used;
       } catch(err) {
         console.warn("checkDeviceToday error:", err);
+        // jangan disable UI karena error; return false
+        warningBox2.textContent = ""; 
         return false;
       }
     }
 
-    // Load dropdowns
     async function loadOptionsAndCheckDevice() {
       showSpinner();
       try {
@@ -225,28 +182,41 @@
           });
         });
 
-        // aktifkan Select2 khusus instansi
-        $('#instansiSelect').select2({
-          placeholder: "-- Pilih Instansi --",
-          allowClear: true,
-          width: "100%"
-        });
+        // init Select2 (setelah options terisi)
+        $('#instansiSelect').select2({ placeholder: "-- Pilih Instansi --", allowClear: true, width: "100%" });
 
-        const fp = await getFingerprint();
-        await checkDeviceToday(fp.deviceID);
       } catch(err) {
         resultBox.textContent = "Gagal memuat data: " + err;
+        console.error(err);
       } finally {
+        // HIDE spinner as soon as dropdowns ready (or error)
         hideSpinner();
       }
+
+      // --- perform fingerprint & device check in background (non-blocking) ---
+      (async () => {
+        try {
+          warningBox2.textContent = "Memeriksa perangkat...";
+          const fp = await getFingerprint();
+          await checkDeviceToday(fp.deviceID);
+        } catch(err) {
+          console.warn("Background device-check error:", err);
+        } finally {
+          // bersihkan pesan sementara jika tidak ada peringatan
+          if (!warningBox.textContent) warningBox2.textContent = "";
+        }
+      })();
+
     }
 
-    // Submit
+    // Submit handler (pakai cachedFP bila ada)
     mainForm.addEventListener("submit", async e=>{
       e.preventDefault();
       showSpinner();
       try {
-        const fp = await getFingerprint();
+        const fp = cachedFP || await getFingerprint();
+        if (!cachedFP) cachedFP = fp;
+
         const deviceUsed = await checkDeviceToday(fp.deviceID);
         if (deviceUsed){ hideSpinner(); return; }
 
@@ -262,35 +232,39 @@
         const data = await res.json();
         resultBox.textContent = data.message;
         if (data.status==="success"){
-			e.target.reset();
-			$('#instansiSelect').val(null).trigger('change'); 
-			setTimeout(()=>location.reload(), 3000); // reload setelah 3 detik
-		}
+          e.target.reset();
+          $('#instansiSelect').val(null).trigger('change');
+          setTimeout(()=>location.reload(), 3000);
+        }
       } catch(err) {
         resultBox.textContent = "Error saat submit: " + err;
+        console.error("Submit error:", err);
       } finally {
         hideSpinner();
       }
     });
 
-    // NIP opsional jika honorer
-    statusSelect.addEventListener("change", e=>{
-      const status = e.target.value.toLowerCase();
-      if (status==="honorer"){
-        nipField.disabled = true;
-        nipField.removeAttribute("required");
-        nipField.value="";
-      } else {
-        nipField.disabled = false;
-        nipField.setAttribute("required","required");
-      }
+    // NIP opsional jika honorer (pastikan nipField bukan null)
+    if (statusSelect) {
+      statusSelect.addEventListener("change", e=>{
+        const status = e.target.value.toLowerCase();
+        if (nipField) {
+          if (status==="honorer"){
+            nipField.disabled = true;
+            nipField.removeAttribute("required");
+            nipField.value="";
+          } else {
+            nipField.disabled = false;
+            nipField.setAttribute("required","required");
+          }
+        }
+      });
+    }
+
+    // hanya angka untuk NIP & NoHP
+    document.querySelectorAll('#nip, #nohp').forEach(el => {
+      el.addEventListener('input', function() { this.value = this.value.replace(/\D/g, ''); });
     });
-	
-	document.querySelectorAll('#nip, #nohp').forEach(el => {
-		el.addEventListener('input', function() {
-			this.value = this.value.replace(/\D/g, ''); // hapus semua non-digit
-		});
-	});
 
     // initial
     loadOptionsAndCheckDevice();
