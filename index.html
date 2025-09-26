@@ -272,16 +272,25 @@
 			setFormEnabled(false);
 		  }
 		}, err=>{
-		  statusEl.textContent = "Gagal mendeteksi lokasi: " + err.message;
+		  if (err.code === 1) { // PERMISSION_DENIED
+			statusEl.textContent = "❌ Akses lokasi ditolak. Form dinonaktifkan.";
+		  } else if (err.code === 2) { // POSITION_UNAVAILABLE
+			statusEl.textContent = "⚠️ Lokasi tidak tersedia.";
+		  } else if (err.code === 3) { // TIMEOUT
+			statusEl.textContent = "⚠️ Timeout mendeteksi lokasi.";
+		  } else {
+			statusEl.textContent = "⚠️ Gagal mendeteksi lokasi: " + err.message;
+		  }
 		  statusEl.className = "alert alert-warning py-2";
 		  setFormEnabled(false);
 		});
 	  } else {
-		statusEl.textContent = "Geolocation tidak didukung browser ini.";
+		statusEl.textContent = "⚠️ Geolocation tidak didukung browser ini.";
 		statusEl.className = "alert alert-warning py-2";
 		setFormEnabled(false);
 	  }
 	}
+
 
 
     // initial
