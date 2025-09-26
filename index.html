@@ -8,6 +8,8 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
   <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; background: #f7f7f7; }
     .card { max-width: 600px; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -16,12 +18,17 @@
     #modalSpinner { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); z-index: 1000; justify-content: center; align-items: center; flex-direction: column; }
     #modalSpinner.show { display: flex; }
     #modalSpinner .spinner-border { color: #fff; width: 3rem; height: 3rem; }
+    /* tambahan untuk peta */
+    #map { height: 300px; margin-bottom: 10px; border-radius: 8px; }
   </style>
 </head>
 <body>
   <!-- (form HTML kamu tetap sama — saya potong agar fokus ke JS) -->
   <div class="card">
     <h3 class="mb-4 text-center">Form Pendaftaran Peserta</h3>
+	
+	<div id="map"></div>
+    <div id="locationStatus" class="alert alert-info py-2">Mendeteksi lokasi...</div>
 
     <div id="warningBox"></div>
     <div id="deviceBox"></div>
@@ -90,7 +97,11 @@
     <div class="spinner-border" role="status"></div>
     <div class="text-white mt-2">Loading...</div>
   </div>
-
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
@@ -209,6 +220,73 @@
       })();
 
     }
+	//1.1280334601449438, 104.05544429639986
+	 // --- Lokasi validasi ---
+    const LOCATION_CENTER = { lat: 1.1280334601449438, lng: 104.05544429639986 }; // ganti koordinat sesuai titik pusat
+    const LOCATION_RADIUS_METERS = 100; // radius meter
+    let map, circle, userMarker;
+
+    function initMap(){
+	  map = L.map('map').setView([LOCATION_CENTER.lat, LOCATION_CENTER.lng], 16);
+	  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+		maxZoom: 19, attribution: '© OpenStreetMap'
+	  }).addTo(map);
+
+	  // lingkaran area
+	  circle = L.circle([LOCATION_CENTER.lat, LOCATION_CENTER.lng], {
+		color: 'blue', fillColor: '#3f9fff', fillOpacity: 0.2, radius: LOCATION_RADIUS_METERS
+	  }).addTo(map);
+
+	  // marker pusat
+	  L.marker([LOCATION_CENTER.lat, LOCATION_CENTER.lng]).addTo(map)
+		.bindPopup("Titik Pusat").openPopup();
+
+	  const statusEl = document.getElementById("locationStatus");
+
+	  // fungsi helper: lock/unlock form
+	  function setFormEnabled(enabled) {
+		document.querySelectorAll("#mainForm input, #mainForm select").forEach(el => {
+		  el.disabled = !enabled;
+		});
+		document.querySelector("#mainForm button[type='submit']").disabled = !enabled;
+	  }
+
+	  // deteksi lokasi user
+	  if (navigator.geolocation){
+		navigator.geolocation.getCurrentPosition(pos=>{
+		  const lat = pos.coords.latitude;
+		  const lng = pos.coords.longitude;
+		  const acc = pos.coords.accuracy;
+		  userMarker = L.marker([lat, lng]).addTo(map).bindPopup("Lokasi Anda").openPopup();
+		  map.setView([lat, lng], 16);
+
+		  // hitung jarak
+		  const dist = map.distance([lat, lng], [LOCATION_CENTER.lat, LOCATION_CENTER.lng]);
+		  if (dist <= LOCATION_RADIUS_METERS){
+			statusEl.textContent = `✅ Anda di dalam area (jarak ${Math.round(dist)} m, akurasi ${Math.round(acc)} m)`;
+			statusEl.className = "alert alert-success py-2";
+			setFormEnabled(true);
+		  } else {
+			statusEl.textContent = `❌ Anda di luar area (jarak ${Math.round(dist)} m, akurasi ${Math.round(acc)} m)`;
+			statusEl.className = "alert alert-danger py-2";
+			setFormEnabled(false);
+		  }
+		}, err=>{
+		  statusEl.textContent = "Gagal mendeteksi lokasi: " + err.message;
+		  statusEl.className = "alert alert-warning py-2";
+		  setFormEnabled(false);
+		});
+	  } else {
+		statusEl.textContent = "Geolocation tidak didukung browser ini.";
+		statusEl.className = "alert alert-warning py-2";
+		setFormEnabled(false);
+	  }
+	}
+
+
+    // initial
+    loadOptionsAndCheckDevice();
+    initMap();
 
     // Submit handler (pakai cachedFP bila ada)
     mainForm.addEventListener("submit", async e=>{
