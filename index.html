@@ -28,7 +28,10 @@
     <h3 class="mb-4 text-center">Form Pendaftaran Peserta</h3>
 	
 	<div id="map"></div>
-    <div id="locationStatus" class="alert alert-info py-2">Mendeteksi lokasi...</div>
+    <div id="locationStatus" class="alert alert-info py-2">Mendeteksi lokasi...	</div>
+	<button id="retryLocationBtn" type="button" class="btn btn-outline-primary btn-sm mb-3">
+	  <i class="fa-solid fa-location-crosshairs"></i> Coba Lagi Izinkan Lokasi
+	</button>
 
     <div id="warningBox"></div>
     <div id="deviceBox"></div>
@@ -86,10 +89,15 @@
       <div id="result"></div>
 	  <div id="warningBox2"></div>
       <div class="col-12 text-center mt-3">
-        <button type="submit" class="btn btn-primary">
-          <i class="fa-solid fa-paper-plane"></i> Submit
-        </button>
-      </div>
+		  <button type="submit" class="btn btn-primary me-2">
+			<i class="fa-solid fa-paper-plane"></i> Submit
+		  </button>
+		  <a href="https://docs.google.com/spreadsheets/d/e/2PACX-1vSxYKQRGc0XkH86jvx7TVHv5OLPp4M44kWzPfTrqVnXzvZr_gTfgjkAlZA2DDIuIDNasY-2xgP0Ta2U/pubhtml?gid=1367122002&single=true"
+			 target="_blank"
+			 class="btn btn-secondary">
+			<i class="fa-solid fa-gauge"></i> Dashboard
+		  </a>
+		</div>
     </form>
   </div>
 
@@ -232,18 +240,15 @@
 		maxZoom: 19, attribution: '© OpenStreetMap'
 	  }).addTo(map);
 
-	  // lingkaran area
 	  circle = L.circle([LOCATION_CENTER.lat, LOCATION_CENTER.lng], {
 		color: 'blue', fillColor: '#3f9fff', fillOpacity: 0.2, radius: LOCATION_RADIUS_METERS
 	  }).addTo(map);
 
-	  // marker pusat
 	  L.marker([LOCATION_CENTER.lat, LOCATION_CENTER.lng]).addTo(map)
 		.bindPopup("Titik Pusat").openPopup();
 
 	  const statusEl = document.getElementById("locationStatus");
 
-	  // fungsi helper: lock/unlock form
 	  function setFormEnabled(enabled) {
 		document.querySelectorAll("#mainForm input, #mainForm select").forEach(el => {
 		  el.disabled = !enabled;
@@ -251,47 +256,54 @@
 		document.querySelector("#mainForm button[type='submit']").disabled = !enabled;
 	  }
 
-	  // deteksi lokasi user
-	  if (navigator.geolocation){
-		navigator.geolocation.getCurrentPosition(pos=>{
-		  const lat = pos.coords.latitude;
-		  const lng = pos.coords.longitude;
-		  const acc = pos.coords.accuracy;
-		  userMarker = L.marker([lat, lng]).addTo(map).bindPopup("Lokasi Anda").openPopup();
-		  map.setView([lat, lng], 16);
+	  function successCallback(pos){
+		const lat = pos.coords.latitude;
+		const lng = pos.coords.longitude;
+		const acc = pos.coords.accuracy;
+		userMarker = L.marker([lat, lng]).addTo(map).bindPopup("Lokasi Anda").openPopup();
+		map.setView([lat, lng], 16);
 
-		  // hitung jarak
-		  const dist = map.distance([lat, lng], [LOCATION_CENTER.lat, LOCATION_CENTER.lng]);
-		  if (dist <= LOCATION_RADIUS_METERS){
-			statusEl.textContent = `✅ Anda di dalam area (jarak ${Math.round(dist)} m, akurasi ${Math.round(acc)} m)`;
-			statusEl.className = "alert alert-success py-2";
-			setFormEnabled(true);
-		  } else {
-			statusEl.textContent = `❌ Anda di luar area (jarak ${Math.round(dist)} m, akurasi ${Math.round(acc)} m)`;
-			statusEl.className = "alert alert-danger py-2";
-			setFormEnabled(false);
-		  }
-		}, err=>{
-		  if (err.code === 1) { // PERMISSION_DENIED
-			statusEl.textContent = "❌ Akses lokasi ditolak. Form dinonaktifkan.";
-		  } else if (err.code === 2) { // POSITION_UNAVAILABLE
-			statusEl.textContent = "⚠️ Lokasi tidak tersedia.";
-		  } else if (err.code === 3) { // TIMEOUT
-			statusEl.textContent = "⚠️ Timeout mendeteksi lokasi.";
-		  } else {
-			statusEl.textContent = "⚠️ Gagal mendeteksi lokasi: " + err.message;
-		  }
-		  statusEl.className = "alert alert-warning py-2";
+		const dist = map.distance([lat, lng], [LOCATION_CENTER.lat, LOCATION_CENTER.lng]);
+		if (dist <= LOCATION_RADIUS_METERS){
+		  statusEl.textContent = `✅ Anda di dalam area (jarak ${Math.round(dist)} m, akurasi ${Math.round(acc)} m)`;
+		  statusEl.className = "alert alert-success py-2";
+		  setFormEnabled(true);
+		} else {
+		  statusEl.textContent = `❌ Anda di luar area (jarak ${Math.round(dist)} m, akurasi ${Math.round(acc)} m)`;
+		  statusEl.className = "alert alert-danger py-2";
 		  setFormEnabled(false);
-		});
+		}
+	  }
+
+	  function handleLocationError(err){
+		if (err.code === 1) { // PERMISSION_DENIED
+		  statusEl.textContent = "❌ Akses lokasi ditolak. Aktifkan izin lokasi di pengaturan browser, lalu klik tombol 'Coba Lagi'.";
+		} else if (err.code === 2) {
+		  statusEl.textContent = "⚠️ Lokasi tidak tersedia.";
+		} else if (err.code === 3) {
+		  statusEl.textContent = "⚠️ Timeout mendeteksi lokasi.";
+		} else {
+		  statusEl.textContent = "⚠️ Gagal mendeteksi lokasi: " + err.message;
+		}
+		statusEl.className = "alert alert-warning py-2";
+		setFormEnabled(false);
+	  }
+
+	  if (navigator.geolocation){
+		navigator.geolocation.getCurrentPosition(successCallback, handleLocationError);
 	  } else {
 		statusEl.textContent = "⚠️ Geolocation tidak didukung browser ini.";
 		statusEl.className = "alert alert-warning py-2";
 		setFormEnabled(false);
 	  }
+
+	  // tombol retry
+	  document.getElementById("retryLocationBtn").addEventListener("click", ()=>{
+		if (navigator.geolocation){
+		  navigator.geolocation.getCurrentPosition(successCallback, handleLocationError);
+		}
+	  });
 	}
-
-
 
     // initial
     loadOptionsAndCheckDevice();
