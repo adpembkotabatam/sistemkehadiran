@@ -115,151 +115,197 @@
   <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
   <script>
-/* ==============================================
-   KONFIGURASI UTAMA
-   ============================================== */
-let cekLokasi = 1;      // 1 = aktifkan validasi lokasi, 0 = skip (form bebas)
-let cekDeviceID = 1;    // 1 = aktifkan validasi device ID, 0 = skip (form bebas)
-let jeniskegiatan = "evaluasi";  // ⚙️ Jenis kegiatan: "evaluasi", "bimtek", dst
+	/* ============================================================
+	   KONFIGURASI UTAMA
+	   ============================================================ */
+	let cekLokasi = 1;        // 1 = aktifkan validasi lokasi, 0 = skip (form bebas)
+	let cekDeviceID = 1;      // 1 = aktifkan validasi device ID, 0 = skip
+	let jeniskegiatan = "evaluasi"; // "evaluasi" => disable beberapa field
+	
+	const apiUrl = "https://script.google.com/macros/s/AKfycbwOI8RQJuxOQb8PEq2JOeANCIXlwM_mznPS_uMteogNpOXwopu6KoCspjoaT1iDiDYj/exec";
+	const spinner = document.getElementById("modalSpinner");
+	const resultBox = document.getElementById("result");
+	const warningBox = document.getElementById("warningBox");
+	const warningBox2 = document.getElementById("warningBox2");
+	const mainForm = document.getElementById("mainForm");
+	const statusSelect = document.getElementById("statusSelect");
+	const nipField = document.getElementById("nip");
+	let cachedFP = null;
+	let map;
+	
+	/* ============================================================
+	   UTILITAS UMUM
+	   ============================================================ */
+	function showSpinner(){ spinner.classList.add("show"); }
+	function hideSpinner(){ spinner.classList.remove("show"); }
+	
+	async function sha256(msg) {
+	  const buf = new TextEncoder().encode(msg);
+	  const hash = await crypto.subtle.digest("SHA-256", buf);
+	  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,"0")).join("");
+	}
+	
+	async function fetchWithTimeout(url, options = {}, timeout = 20000) {
+	  const controller = new AbortController();
+	  const id = setTimeout(() => controller.abort(), timeout);
+	  try {
+	    const res = await fetch(url, { ...options, signal: controller.signal });
+	    clearTimeout(id);
+	    return res;
+	  } catch (err) {
+	    clearTimeout(id);
+	    throw new Error("Request timeout or fetch failed: " + err.message);
+	  }
+	}
+	
+	/* ============================================================
+	   CEK DEVICE ID
+	   ============================================================ */
+	async function getFingerprint() {
+	  if (cachedFP) return cachedFP;
+	  const ua = navigator.userAgent;
+	  const screenRes = `${screen.width}x${screen.height}`;
+	  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	  const lang = navigator.language;
+	  let ip = "N/A";
+	  try {
+	    ip = (await (await fetchWithTimeout("https://api.ipify.org?format=json", {}, 3000)).json()).ip;
+	  } catch(e){ console.warn("Gagal ambil IP:", e); }
+	  const raw = `${ua}|${screenRes}|${tz}|${lang}|${ip}`;
+	  const deviceID = await sha256(raw);
+	  cachedFP = { deviceID, ip };
+	  document.getElementById("deviceBox").textContent = `Device ID: ${deviceID} | IP: ${ip}`;
+	  return cachedFP;
+	}
+	
+	async function checkDeviceToday(deviceID) {
+	  try {
+	    const res = await fetchWithTimeout(`${apiUrl}?action=checkDevice&deviceID=${encodeURIComponent(deviceID)}`, {}, 8000);
+	    const data = await res.json();
+	    if (data.used) {
+	      warningBox.textContent = "⚠️ Device ini sudah melakukan input hari ini.";
+	      warningBox2.textContent = warningBox.textContent;
+	      document.querySelectorAll("#mainForm input,#mainForm select,#mainForm button").forEach(el => el.disabled = true);
+	    }
+	    return data.used;
+	  } catch(err) {
+	    console.warn("checkDeviceToday error:", err);
+	    warningBox2.textContent = "";
+	    return false;
+	  }
+	}
+	
+	/* ============================================================
+	   LOAD OPTION DROPDOWN
+	   ============================================================ */
+	async function loadOptionsAndCheckDevice() {
+	  showSpinner();
+	  try {
+	    const res = await fetchWithTimeout(`${apiUrl}?action=getOptions`, { cache:"no-store" });
+	    const data = await res.json();
+	
+	    ["instansi", "status", "usia", "jabatan", "gender", "acara"].forEach(name=>{
+	      const sel = document.querySelector(`[name='${name}']`);
+	      if (!sel) return;
+	      sel.innerHTML = "<option value=''>-- Pilih --</option>";
+	      (data[name]||[]).forEach(v=>{
+	        const o = document.createElement("option");
+	        o.value = v;
+	        o.textContent = v;
+	        sel.appendChild(o);
+	      });
+	    });
+	
+	    // aktifkan select2 untuk instansi
+	    if (typeof $ !== "undefined" && $.fn.select2) {
+	      $('#instansiSelect').select2({ placeholder: "-- Pilih Instansi --", allowClear: true, width: "100%" });
+	    }
+	
+	    // ⚙️ Tambahan: jika jenis kegiatan evaluasi → disable 3 field
+	    if (jeniskegiatan.toLowerCase() === "evaluasi") {
+	      ["status", "usia", "jabatan"].forEach(name => {
+	        const el = document.querySelector(`[name='${name}']`);
+	        if (el) {
+	          el.value = "skip";
+	          el.disabled = true;
+	          el.innerHTML = "<option value='skip' selected>skip</option>";
+	        }
+	      });
+	    }
+	
+	  } catch(err) {
+	    resultBox.textContent = "Gagal memuat data: " + err;
+	    console.error(err);
+	  } finally {
+	    hideSpinner();
+	  }
+	
+	  // Cek device bila aktif
+	  if (cekDeviceID === 1) {
+	    (async () => {
+	      try {
+	        warningBox2.textContent = "Memeriksa perangkat...";
+	        const fp = await getFingerprint();
+	        await checkDeviceToday(fp.deviceID);
+	      } catch(err) {
+	        console.warn("Background device-check error:", err);
+	      } finally {
+	        if (!warningBox.textContent) warningBox2.textContent = "";
+	      }
+	    })();
+	  } else {
+	    warningBox2.textContent = "ℹ️ Pengecekan device dimatikan (mode bebas).";
+	  }
+	}
+	
+	/* ============================================================
+	   INISIALISASI PETA
+	   ============================================================ */
+	function initMap() {
+	  try {
+	    if (typeof L === 'undefined') {
+	      console.error('Leaflet belum dimuat.');
+	      const statusEl = document.getElementById('locationStatus');
+	      if (statusEl) {
+	        statusEl.textContent = '⚠️ Peta gagal dimuat (Leaflet tidak tersedia).';
+	        statusEl.className = 'alert alert-warning py-2';
+	      }
+	      return;
+	    }
+	
+	    const LOCATION_CENTER = { lat: 1.117, lng: 104.047 }; // koordinat default Batam
+	    map = L.map('map').setView([LOCATION_CENTER.lat, LOCATION_CENTER.lng], 16);
+	
+	    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+	      maxZoom: 19,
+	      attribution: '&copy; OpenStreetMap'
+	    }).addTo(map);
+	
+	    L.circle([LOCATION_CENTER.lat, LOCATION_CENTER.lng], {
+	      color: 'blue',
+	      fillColor: '#3f9fff',
+	      fillOpacity: 0.2,
+	      radius: 150
+	    }).addTo(map);
+	
+	  } catch(err) {
+	    console.error("Error initMap:", err);
+	  }
+	}
+	
+	/* ============================================================
+	   JALANKAN SETELAH DOM SIAP
+	   ============================================================ */
+	document.addEventListener('DOMContentLoaded', async () => {
+	  try {
+	    await loadOptionsAndCheckDevice();
+	    initMap();
+	  } catch (err) {
+	    console.error("Error saat inisialisasi:", err);
+	  }
+	});
+	</script>
 
-const apiUrl = "https://script.google.com/macros/s/AKfycbwOI8RQJuxOQb8PEq2JOeANCIXlwM_mznPS_uMteogNpOXwopu6KoCspjoaT1iDiDYj/exec";
-const spinner = document.getElementById("modalSpinner");
-const resultBox = document.getElementById("result");
-const warningBox = document.getElementById("warningBox");
-const warningBox2 = document.getElementById("warningBox2");
-const mainForm = document.getElementById("mainForm");
-const statusSelect = document.getElementById("statusSelect");
-const nipField = document.getElementById("nip");
-let cachedFP = null;
-
-/* ==============================================
-   UTILITAS UMUM
-   ============================================== */
-function showSpinner(){ spinner.classList.add("show"); }
-function hideSpinner(){ spinner.classList.remove("show"); }
-
-async function sha256(msg) {
-  const buf = new TextEncoder().encode(msg);
-  const hash = await crypto.subtle.digest("SHA-256", buf);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,"0")).join("");
-}
-
-async function fetchWithTimeout(url, options = {}, timeout = 20000) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(id);
-    return res;
-  } catch (err) {
-    clearTimeout(id);
-    throw new Error("Request timeout or fetch failed: " + err.message);
-  }
-}
-
-/* ==============================================
-   CEK DEVICE ID
-   ============================================== */
-async function getFingerprint() {
-  if (cachedFP) return cachedFP;
-  const ua = navigator.userAgent;
-  const screenRes = `${screen.width}x${screen.height}`;
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const lang = navigator.language;
-  let ip = "N/A";
-  try {
-    ip = (await (await fetchWithTimeout("https://api.ipify.org?format=json", {}, 3000)).json()).ip;
-  } catch(e){ console.warn("Gagal ambil IP:", e); }
-  const raw = `${ua}|${screenRes}|${tz}|${lang}|${ip}`;
-  const deviceID = await sha256(raw);
-  cachedFP = { deviceID, ip };
-  document.getElementById("deviceBox").textContent = `Device ID: ${deviceID} | IP: ${ip}`;
-  return cachedFP;
-}
-
-async function checkDeviceToday(deviceID) {
-  try {
-    const res = await fetchWithTimeout(`${apiUrl}?action=checkDevice&deviceID=${encodeURIComponent(deviceID)}`, {}, 8000);
-    const data = await res.json();
-    if (data.used) {
-      warningBox.textContent = "⚠️ Device ini sudah melakukan input hari ini.";
-      warningBox2.textContent = warningBox.textContent;
-      document.querySelectorAll("#mainForm input,#mainForm select,#mainForm button").forEach(el => el.disabled = true);
-    }
-    return data.used;
-  } catch(err) {
-    console.warn("checkDeviceToday error:", err);
-    warningBox2.textContent = "";
-    return false;
-  }
-}
-
-/* ==============================================
-   LOAD OPTION DROPDOWN + CEK DEVICE
-   ============================================== */
-async function loadOptionsAndCheckDevice() {
-  showSpinner();
-  try {
-    const res = await fetchWithTimeout(`${apiUrl}?action=getOptions`, { cache:"no-store" });
-    const data = await res.json();
-
-    ["instansi", "status", "usia", "jabatan", "gender", "acara"].forEach(name=>{
-      const sel = document.querySelector(`[name='${name}']`);
-      if (!sel) return;
-      sel.innerHTML = "<option value=''>-- Pilih --</option>";
-      (data[name]||[]).forEach(v=>{
-        const o = document.createElement("option");
-        o.value = v;
-        o.textContent = v;
-        sel.appendChild(o);
-      });
-    });
-
-    $('#instansiSelect').select2({ placeholder: "-- Pilih Instansi --", allowClear: true, width: "100%" });
-
-    // ⚙️ Tambahan: jika jenis kegiatan = evaluasi, disable 3 dropdown
-    if (jeniskegiatan.toLowerCase() === "evaluasi") {
-      ["status", "usia", "jabatan"].forEach(name => {
-        const el = document.querySelector(`[name='${name}']`);
-        if (el) {
-          el.value = "skip";
-          el.disabled = true;
-          el.innerHTML = "<option value='skip' selected>skip</option>";
-        }
-      });
-    }
-
-  } catch(err) {
-    resultBox.textContent = "Gagal memuat data: " + err;
-    console.error(err);
-  } finally {
-    hideSpinner();
-  }
-
-  // cek device jika diaktifkan
-  if (cekDeviceID === 1) {
-    (async () => {
-      try {
-        warningBox2.textContent = "Memeriksa perangkat...";
-        const fp = await getFingerprint();
-        await checkDeviceToday(fp.deviceID);
-      } catch(err) {
-        console.warn("Background device-check error:", err);
-      } finally {
-        if (!warningBox.textContent) warningBox2.textContent = "";
-      }
-    })();
-  } else {
-    warningBox2.textContent = "ℹ️ Pengecekan device dimatikan (mode bebas).";
-  }
-}
-
-/* ==============================================
-   (script lain tetap sama seperti sebelumnya)
-   ============================================== */
-loadOptionsAndCheckDevice();
-initMap();
-</script>
 
 </body>
 </html>
