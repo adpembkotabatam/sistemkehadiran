@@ -13,63 +13,17 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-      background: #f7f7f7;
-    }
+    body { font-family: Arial, sans-serif; padding: 20px; background: #f7f7f7; }
+    .card { max-width: 600px; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+    #deviceBox { margin-top: 10px; font-size: 0.85rem; color: #555; }
+    #warningBox, #warningBox2 { margin-top: 10px; color: red; font-weight: bold; }
+    #modalSpinner { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.4); z-index:1000; justify-content:center; align-items:center; flex-direction:column; }
+    #modalSpinner.show { display:flex; }
+    #modalSpinner .spinner-border { color:#fff; width:3rem; height:3rem; }
+    #map { height:300px; margin-bottom:10px; border-radius:8px; }
 
-    .card {
-      max-width: 600px;
-      margin: auto;
-      padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    }
-
-    #deviceBox {
-      margin-top: 10px;
-      font-size: 0.85rem;
-      color: #555;
-    }
-
-    #warningBox,
-    #warningBox2 {
-      margin-top: 10px;
-      color: red;
-      font-weight: bold;
-    }
-
-    #modalSpinner {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.4);
-      z-index: 1000;
-      justify-content: center;
-      align-items: center;
-      flex-direction: column;
-    }
-
-    #modalSpinner.show {
-      display: flex;
-    }
-
-    #modalSpinner .spinner-border {
-      color: #fff;
-      width: 3rem;
-      height: 3rem;
-    }
-
-    /* Peta */
-    #map {
-      height: 300px;
-      margin-bottom: 10px;
-      border-radius: 8px;
-    }
+    /* helper untuk hide field group */
+    .hidden-group { display: none !important; }
   </style>
 </head>
 
@@ -103,7 +57,7 @@
         <select name="instansi" class="form-select" id="instansiSelect" required></select>
       </div>
 
-      <div class="col-12">
+      <div class="col-12" id="group-status">
         <label class="form-label">Status Kepegawaian</label>
         <select name="status" id="statusSelect" class="form-select" required></select>
       </div>
@@ -113,12 +67,12 @@
         <input id="nip" name="nip" type="number" inputmode="numeric" pattern="[0-9]*" class="form-control" />
       </div>
 
-      <div class="col-12 col-md-6">
+      <div class="col-12 col-md-6" id="group-usia">
         <label class="form-label">Usia</label>
         <select name="usia" class="form-select" required></select>
       </div>
 
-      <div class="col-12 col-md-6">
+      <div class="col-12 col-md-6" id="group-jabatan">
         <label class="form-label">Jabatan</label>
         <select name="jabatan" class="form-select" required></select>
       </div>
@@ -183,23 +137,23 @@
     const nipField = document.getElementById("nip");
     let cachedFP = null;
 
+    // --- Ambil nilai jk dari query string (cont: ?jk=bimtek atau ?jk=evaluasi)
+    function getQueryParam(name) {
+      const params = new URLSearchParams(window.location.search);
+      return params.get(name);
+    }
+    const jkParam = (getQueryParam('jk') || '').toLowerCase(); // 'bimtek' | 'evaluasi' | ''
+
     /* ==============================================
        UTILITAS UMUM
     ============================================== */
-    function showSpinner() {
-      spinner.classList.add("show");
-    }
-
-    function hideSpinner() {
-      spinner.classList.remove("show");
-    }
+    function showSpinner() { spinner.classList.add("show"); }
+    function hideSpinner() { spinner.classList.remove("show"); }
 
     async function sha256(msg) {
       const buf = new TextEncoder().encode(msg);
       const hash = await crypto.subtle.digest("SHA-256", buf);
-      return Array.from(new Uint8Array(hash))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
+      return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
     }
 
     async function fetchWithTimeout(url, options = {}, timeout = 20000) {
@@ -227,9 +181,7 @@
       let ip = "N/A";
 
       try {
-        ip = (
-          await (await fetchWithTimeout("https://api.ipify.org?format=json", {}, 3000)).json()
-        ).ip;
+        ip = (await (await fetchWithTimeout("https://api.ipify.org?format=json", {}, 3000)).json()).ip;
       } catch (e) {
         console.warn("Gagal ambil IP:", e);
       }
@@ -243,8 +195,9 @@
 
     async function checkDeviceToday(deviceID) {
       try {
+        // sertakan jk jika ada
         const res = await fetchWithTimeout(
-          `${apiUrl}?action=checkDevice&deviceID=${encodeURIComponent(deviceID)}`,
+          `${apiUrl}?action=checkDevice&deviceID=${encodeURIComponent(deviceID)}${jkParam ? '&jk=' + encodeURIComponent(jkParam) : ''}`,
           {},
           8000
         );
@@ -270,7 +223,8 @@
     async function loadOptionsAndCheckDevice() {
       showSpinner();
       try {
-        const res = await fetchWithTimeout(`${apiUrl}?action=getOptions`, { cache: "no-store" });
+        // sertakan jk saat meminta daftar option, supaya server bisa menyesuaikan jika perlu
+        const res = await fetchWithTimeout(`${apiUrl}?action=getOptions${jkParam ? '&jk=' + encodeURIComponent(jkParam) : ''}`, { cache: "no-store" });
         const data = await res.json();
 
         ["instansi", "status", "usia", "jabatan", "gender", "acara"].forEach((name) => {
@@ -297,6 +251,9 @@
         hideSpinner();
       }
 
+      // Setelah opsi ter-load kita terapkan aturan jk = evaluasi (jika ada)
+      applyJkBehavior();
+
       if (cekDeviceID === 1) {
         (async () => {
           try {
@@ -315,6 +272,59 @@
     }
 
     /* ==============================================
+       PERILAKU KHUSUS JK (bimtek | evaluasi)
+       - jika evaluasi: hide status, usia, jabatan; set value = 'skip'
+    ============================================== */
+    function applyJkBehavior() {
+      // elemen grup
+      const gStatus = document.getElementById('group-status');
+      const gUsia = document.getElementById('group-usia');
+      const gJabatan = document.getElementById('group-jabatan');
+
+      const elStatus = document.querySelector("[name='status']");
+      const elUsia = document.querySelector("[name='usia']");
+      const elJabatan = document.querySelector("[name='jabatan']");
+
+      if (jkParam === 'evaluasi') {
+        // sembunyikan grup
+        if (gStatus) gStatus.classList.add('hidden-group');
+        if (gUsia) gUsia.classList.add('hidden-group');
+        if (gJabatan) gJabatan.classList.add('hidden-group');
+
+        // set nilai menjadi 'skip' (pastikan option ada; jika tidak, tambahkan)
+        function setToSkip(el) {
+          if (!el) return;
+          // jika option skip belum ada, tambahkan
+          if (![...el.options].some(o => o.value === 'skip')) {
+            const opt = document.createElement('option');
+            opt.value = 'skip';
+            opt.textContent = 'skip';
+            el.appendChild(opt);
+          }
+          el.value = 'skip';
+          // non-aktifkan required / interaksi
+          el.disabled = true;
+          el.removeAttribute('required');
+        }
+
+        setToSkip(elStatus);
+        setToSkip(elUsia);
+        setToSkip(elJabatan);
+
+        // NIP tidak wajib di evaluasi? (biarkan seperti semula — jika ingin diubah, sesuaikan di sini)
+      } else {
+        // default (bimtek atau kosong): pastikan terlihat dan aktif
+        if (gStatus) gStatus.classList.remove('hidden-group');
+        if (gUsia) gUsia.classList.remove('hidden-group');
+        if (gJabatan) gJabatan.classList.remove('hidden-group');
+
+        if (elStatus) { elStatus.disabled = false; elStatus.setAttribute('required', 'required'); }
+        if (elUsia) { elUsia.disabled = false; elUsia.setAttribute('required', 'required'); }
+        if (elJabatan) { elJabatan.disabled = false; elJabatan.setAttribute('required', 'required'); }
+      }
+    }
+
+    /* ==============================================
        VALIDASI LOKASI
     ============================================== */
     const LOCATION_CENTER = { lat: 1.1280334601449438, lng: 104.05544429639986 };
@@ -324,7 +334,6 @@
     function initMap() {
       const statusEl = document.getElementById("locationStatus");
 
-      // Mode bebas lokasi
       if (cekLokasi === 0) {
         statusEl.textContent = "✅ Pengecekan lokasi dimatikan (mode bebas).";
         statusEl.className = "alert alert-secondary py-2";
@@ -353,7 +362,6 @@
         return;
       }
 
-      // Mode validasi lokasi
       map = L.map("map").setView([LOCATION_CENTER.lat, LOCATION_CENTER.lng], 16);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
@@ -389,15 +397,11 @@
 
         const dist = map.distance([lat, lng], [LOCATION_CENTER.lat, LOCATION_CENTER.lng]);
         if (dist <= LOCATION_RADIUS_METERS) {
-          statusEl.textContent = `✅ Anda di dalam area (jarak ${Math.round(dist)} m, akurasi ${Math.round(
-            acc
-          )} m)`;
+          statusEl.textContent = `✅ Anda di dalam area (jarak ${Math.round(dist)} m, akurasi ${Math.round(acc)} m)`;
           statusEl.className = "alert alert-success py-2";
           setFormEnabled(true);
         } else {
-          statusEl.textContent = `❌ Anda di luar area (jarak ${Math.round(dist)} m, akurasi ${Math.round(
-            acc
-          )} m)`;
+          statusEl.textContent = `❌ Anda di luar area (jarak ${Math.round(dist)} m, akurasi ${Math.round(acc)} m)`;
           statusEl.className = "alert alert-danger py-2";
           setFormEnabled(false);
         }
@@ -432,93 +436,86 @@
     }
 
     /* ============================================================
-   EVENT: Submit Form
-============================================================ */
-	mainForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    showSpinner();
+       EVENT: Submit Form
+    ============================================================ */
+    mainForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      showSpinner();
 
-    try {
+      try {
         let fp = { deviceID: "skip-check", ip: "0.0.0.0" };
 
-        // Jika pengecekan device diaktifkan
         if (cekDeviceID === 1) {
-            fp = cachedFP || await getFingerprint();
-            if (!cachedFP) cachedFP = fp;
+          fp = cachedFP || await getFingerprint();
+          if (!cachedFP) cachedFP = fp;
 
-            const deviceUsed = await checkDeviceToday(fp.deviceID);
-            if (deviceUsed) {
-                hideSpinner();
-                return;
-            }
+          const deviceUsed = await checkDeviceToday(fp.deviceID);
+          if (deviceUsed) {
+            hideSpinner();
+            return;
+          }
         }
 
-        // Ambil data dari form
         const formData = Object.fromEntries(new FormData(e.target).entries());
         formData.deviceID = fp.deviceID;
         formData.ip = fp.ip;
+        if (jkParam) formData.jk = jkParam; // sertakan jk di body juga
 
-        // Kirim data ke server
-        const res = await fetchWithTimeout(apiUrl, {
-            method: "POST",
-            body: JSON.stringify(formData),
-            headers: { "Content-Type": "text/plain" },
+        const res = await fetchWithTimeout(apiUrl + (jkParam ? '?jk=' + encodeURIComponent(jkParam) : ''), {
+          method: "POST",
+          body: JSON.stringify(formData),
+          headers: { "Content-Type": "text/plain" },
         });
 
         const data = await res.json();
 
-        // Tampilkan hasil
         resultBox.textContent = data.message;
 
         if (data.status === "success") {
-            e.target.reset();
-            $('#instansiSelect').val(null).trigger('change');
-            setTimeout(() => location.reload(), 3000);
+          e.target.reset();
+          $('#instansiSelect').val(null).trigger('change');
+          setTimeout(() => location.reload(), 3000);
         }
 
-    } catch (err) {
+      } catch (err) {
         resultBox.textContent = "Error saat submit: " + err;
         console.error("Submit error:", err);
-
-    } finally {
+      } finally {
         hideSpinner();
-    }
-});
+      }
+    });
 
-/* ============================================================
-   EVENT TAMBAHAN
-============================================================ */
-// Saat status berubah (misal PNS / Honorer)
-if (statusSelect) {
-    statusSelect.addEventListener("change", (e) => {
+    /* ============================================================
+       EVENT TAMBAHAN
+    ============================================================ */
+    if (statusSelect) {
+      statusSelect.addEventListener("change", (e) => {
         const status = e.target.value.toLowerCase();
-
         if (nipField) {
-            if (status === "honorer") {
-                nipField.disabled = true;
-                nipField.removeAttribute("required");
-                nipField.value = "";
-            } else {
-                nipField.disabled = false;
-                nipField.setAttribute("required", "required");
-            }
+          if (status === "honorer") {
+            nipField.disabled = true;
+            nipField.removeAttribute("required");
+            nipField.value = "";
+          } else {
+            nipField.disabled = false;
+            nipField.setAttribute("required", "required");
+          }
         }
-    });
-}
+      });
+    }
 
-// Hanya izinkan angka di NIP dan No HP
-document.querySelectorAll('#nip, #nohp').forEach(el => {
-    el.addEventListener('input', function() {
+    // Hanya izinkan angka di NIP dan No HP
+    document.querySelectorAll('#nip, #nohp').forEach(el => {
+      el.addEventListener('input', function() {
         this.value = this.value.replace(/\D/g, '');
+      });
     });
-});
 
-/* ============================================================
-   INISIALISASI
-============================================================ */
-loadOptionsAndCheckDevice();
-initMap();
-</script>
-
+    /* ============================================================
+       INISIALISASI
+    ============================================================ */
+    loadOptionsAndCheckDevice();
+    initMap();
+  </script>
 </body>
 </html>
