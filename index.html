@@ -127,7 +127,7 @@
 
   <script>
     // ======== KONFIG & STATE ========
-    let cekLokasi = 0;
+    let cekLokasi = 1;
     let cekDeviceID = 1;
     const apiUrl = "https://script.google.com/macros/s/AKfycbwOI8RQJuxOQb8PEq2JOeANCIXlwM_mznPS_uMteogNpOXwopu6KoCspjoaT1iDiDYj/exec";
     const spinner = document.getElementById("modalSpinner");
@@ -301,7 +301,7 @@
 
     // ======== MAP / LOKASI (tidak diubah) ========
     const LOCATION_CENTER = { lat: 1.1281501914821586, lng: 104.05568595766977};
-    const LOCATION_RADIUS_METERS = 100;
+    const LOCATION_RADIUS_METERS = 10;
     let map, circle, userMarker;
     function initMap() {
       const statusEl = document.getElementById("locationStatus");
